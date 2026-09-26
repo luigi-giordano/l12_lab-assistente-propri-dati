@@ -1,0 +1,25 @@
+# Credenziali e variabili d'ambiente
+.env
+
+# Ambienti virtuali
+.venv/
+venv/
+ENV/
+
+# Cache di Python e compilati
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Database Vettoriale locale (Chroma e simili)
+chroma/
+*.db
+
+# Dati e Documenti sorgente 
+data/
+working/*.txt
+
+# Configurazioni dell'IDE (VS Code)
+.vscode/
+.DS_Store

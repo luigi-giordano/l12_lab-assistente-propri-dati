@@ -1,0 +1,15 @@
+# Modulo 3 · Lezione 12 — Lab: l'assistente sui propri dati
+# Le stesse di Modulo 3 · Lezione 11, più openpyxl per leggere le tabelle Excel (scaffolding/tabelle_in_db.py).
+python-dotenv
+openai
+openai-agents==0.22.3
+pydantic
+numpy
+chromadb
+rank-bm25
+cohere
+pypdf
+python-docx
+beautifulsoup4
+markdown-it-py
+openpyxl
