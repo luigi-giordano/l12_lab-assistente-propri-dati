@@ -33,6 +33,7 @@ except ImportError:
 
 # Definizione dei percorsi per i documenti e per il vector database di Valdoria
 DIR_DOCUMENTI = SCRIPTS / "temi" / "valdoria" / "documenti"
+DIR_VECTORSTORE = SCRIPTS / "temi" / "valdoria" / "vectorstore"
 NOME_COLLEZIONE = "valdoria_docs"
 
 

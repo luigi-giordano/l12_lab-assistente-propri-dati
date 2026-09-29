@@ -55,34 +55,40 @@ NOME_SESSIONE = "valdoria_user_session"  # ID unico per identificare la sessione
 # ==============================================================================
 @function_tool
 def cerca_documenti(query: str, k: int = 3) -> str:
-    """Cerca all'interno dei documenti e regolamenti non strutturati della Biblioteca di Valdoria.
-
-    Restituisce i chunk di testo più rilevanti rispetto alla query, indicando
-    esplicitamente la fonte e il titolo del documento di origine.
-
-    Args:
-        query: La domanda o la parola chiave da cercare nei documenti.
-        k: Il numero di risultati/chunk rilevanti da recuperare (default 3).
-    """
+    """Cerca all'interno dei documenti e regolamenti non strutturati della Biblioteca di Valdoria."""
+    print(f"\n🔍 [TOOL RAG] Cercando nei documenti: '{query}'")
     try:
-        risultati = rag.recupera(collezione=NOME_COLLEZIONE, query=query, k=k)
+        # Passiamo NOME_COLLEZIONE come primo parametro posizionale (senza collezione=...)
+        risultati = rag.recupera(query, k)
 
         if not risultati:
             return "Nessun documento o regolamento pertinente trovato nei file di Valdoria."
 
         testi_formattati = []
         for idx, res in enumerate(risultati, start=1):
-            fonte = res.get("source", res.get("id", "Documento Sconosciuto"))
-            testo = res.get("testo", "").strip()
-            score = res.get("score", 0.0)
+            if isinstance(res, dict):
+                metadata = res.get("metadata", {})
+                fonte = (
+                    metadata.get("source")
+                    or res.get("source")
+                    or res.get("id")
+                    or "Documento Sconosciuto"
+                )
+                testo = res.get("testo") or res.get("text") or res.get("document") or ""
+                score = res.get("score", 0.0)
+            else:
+                fonte = getattr(res, "source", "Documento Sconosciuto")
+                testo = getattr(res, "text", str(res))
+                score = 0.0
 
             testi_formattati.append(
-                f"--- CHUNK {idx} (Fonte: {fonte} | Rilevanza: {score:.2f}) ---\n{testo}"
+                f"--- CHUNK {idx} (Fonte: {fonte} | Rilevanza: {score:.2f}) ---\n{testo.strip()}"
             )
 
         return "\n\n".join(testi_formattati)
 
     except Exception as e:
+        print(f"❌ [TOOL RAG ERROR]: {e}")
         return f"Errore durante il recupero dei documenti: {e}"
 
 
@@ -130,8 +136,8 @@ Disponi di due strumenti (tool):
 # ==============================================================================
 # PROCEDIMENTO 5: INIZIALIZZAZIONE AGENTE E CICLO REPL CON SESSIONE PERSISTENTE
 # ==============================================================================
-def esegui_agente():
-    """Inizializza l'agente e gestisce il ciclo REPL con sessione SQLite persistente."""
+async def esegui_agente():
+    """Inizializza l'agente e gestisce il ciclo REPL asincrono con sessione SQLite persistente."""
 
     sessione = SQLiteSession(session_id=NOME_SESSIONE, db_path=str(DB_SESSIONI))
 
@@ -146,7 +152,9 @@ def esegui_agente():
 
     while True:
         try:
-            user_input = input("Utente > ").strip()
+            # Usiamo asyncio.to_thread per non bloccare l'event loop durante l'input dell'utente
+            user_input = await asyncio.to_thread(input, "Utente > ")
+            user_input = user_input.strip()
 
             if not user_input:
                 continue
@@ -155,15 +163,13 @@ def esegui_agente():
                 print("👋 Arrivederci!")
                 break
 
-            # Gestione dell'esecuzione sia se Runner.run è asincrono (coroutine) sia se è sincrono
+            # Esecuzione asincrona dell'agente nel medesimo Event Loop
             if inspect.iscoroutinefunction(Runner.run):
-                risultato = asyncio.run(
-                    Runner.run(agente, input=user_input, session=sessione)
-                )
+                risultato = await Runner.run(agente, input=user_input, session=sessione)
             else:
                 risultato = Runner.run(agente, input=user_input, session=sessione)
                 if inspect.iscoroutine(risultato):
-                    risultato = asyncio.run(risultato)
+                    risultato = await risultato
 
             # Estrazione dell'output
             if hasattr(risultato, "final_output"):
@@ -183,4 +189,5 @@ def esegui_agente():
 
 
 if __name__ == "__main__":
-    esegui_agente()
+    # Avviamo un UNICO event loop per tutta la durata dell'applicazione
+    asyncio.run(esegui_agente())
