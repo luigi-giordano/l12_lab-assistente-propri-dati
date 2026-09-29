@@ -61,7 +61,7 @@ def cerca_documenti(query: str) -> str:
     try:
         # Apriamo la collezione ESATTA "valdoria_docs" dove documenti.py ha salvato i dati!
         collection = vectorstore.apri_collection(NOME_COLLEZIONE)
-        risultati = vectorstore.search(collection, query, k=5)
+        risultati = vectorstore.search(collection, query, k=3)
 
         print(f"DEBUG - Risultati trovati in '{NOME_COLLEZIONE}': {len(risultati)}")
 
@@ -116,8 +116,10 @@ Disponi di due strumenti (tool):
 - `catalogo` (id, titolo, autore, genere, anno, sede, tipo, copie) --> tipo può essere 'libro', 'dvd', 'rivista'
 - `prestiti` (id, utente_id, catalogo_id, data_prestito, data_scadenza, data_restituzione, rinnovi)
 
-### DIRETTIVE PER LE RICERCHE (RAG):
-- Quando usi `cerca_documenti`, includi nella query sia il tema principale sia le caratteristiche rilevanti dell'utente (es. "limite prestiti tessera studenti universitari", "sanzioni ritardo 30 giorni", "restituzione contenitore h24").
+### DIRETTIVE PER L'USO DEI TOOL (OTTIMIZZAZIONE TOKEN E LATENZA):
+- Per domande riguardanti orari, regolamenti, sale studio o iscrizioni, NON eseguire MAI query SQL (es. evita query di prova come `SELECT 1;`).
+- Quando usi `cerca_documenti`, formula UN'UNICA query di ricerca completa ed esaustiva (es. "limite prestiti tessera studenti universitari", "sanzioni ritardo 30 giorni").
+- EVITA chiamate RAG a catena: non eseguire più ricerche RAG consecutive nello stesso turno di conversazione, rispondi direttamente basandoti sui primi documenti recuperati.
 
 ### DIRETTIVE PER LE RISPOSTE:
 1. **Analisi del Profilo Utente:** Quando un utente specifica età o condizione (es. studente universitario, minore di 14 anni, over 75), verifica SEMPRE nei regolamenti se ha diritto a tessere speciali (es. Tessera Studenti o Tessera Famiglia) o a condizioni agevolate prima di indicare i limiti.
