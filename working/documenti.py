@@ -36,6 +36,15 @@ DIR_DOCUMENTI = SCRIPTS / "temi" / "valdoria" / "documenti"
 DIR_VECTORSTORE = SCRIPTS / "temi" / "valdoria" / "vectorstore"
 NOME_COLLEZIONE = "valdoria_docs"
 
+# ==============================================================================
+# PARAMETRI DI CHUNKING AGGIORNATI
+# ==============================================================================
+# Portiamo la dimensione del blocco a 1200 caratteri (invece di 500).
+# Questo evita che tabelle multilinea (come i limiti di prestito per tipologia
+# di tessera nel regolamento) vengano spezzate a metà, garantendo all'LLM
+# il contesto completo per evitare allucinazioni.
+DIMENSIONE_CHUNK_OTTIMALE = 1200
+
 
 def estrai_testo_documento(doc) -> str:
     """
@@ -54,7 +63,8 @@ def estrai_testo_documento(doc) -> str:
 
 def pulisci_testo(testo: str) -> str:
     """
-    Pulisce il testo rimuovendo spazi doppi o righe vuote eccessive.
+    Pulisce il testo mantenendo però la struttura minima necessaria.
+    ATTENZIONE: Manteniamo le newline per preservare la struttura delle tabelle.
     """
     if not testo:
         return ""
@@ -69,12 +79,15 @@ def pulisci_testo(testo: str) -> str:
             except Exception:
                 pass
 
-    return " ".join(testo.split())
+    # Se usiamo il fallback manuale, evitiamo 'join(split())' completo per non distruggere i fine riga delle tabelle
+    lines = [line.strip() for line in testo.splitlines() if line.strip()]
+    return "\n".join(lines)
 
 
-def dividi_in_chunk(testo: str, dimensione: int = 500):
+def dividi_in_chunk(testo: str, dimensione: int = DIMENSIONE_CHUNK_OTTIMALE):
     """
-    Richiama chunk_recursive passando i 2 argomenti richiesti da aikit (testo, dimensione).
+    Richiama chunk_recursive passando la dimensione ampliata (1200 caratteri).
+    In questo modo i paragrafi normativi e le tabelle rimangono integri nel singolo chunk.
     """
     try:
         return chunk_recursive(testo, dimensione)
@@ -84,8 +97,8 @@ def dividi_in_chunk(testo: str, dimensione: int = 500):
 
 def costruisci_vectorstore():
     """
-    Legge tutti i documenti della cartella, li pulisce, li suddivide in chunk,
-    calcola gli embedding e li salva nel Vector Database locale con aikit.
+    Legge tutti i documenti della cartella, li pulisce, li suddivide in chunk con
+    dimensione maggiorata (1200 car), calcola gli embedding e li salva nel Vector Database.
     """
     print("🚀 Inizio processo di ingestion per il tema Valdoria...")
 
@@ -116,7 +129,11 @@ def costruisci_vectorstore():
                     continue
 
                 testo_pulito = pulisci_testo(testo_grezzo)
-                chunks_doc = dividi_in_chunk(testo_pulito, dimensione=500)
+
+                # MODIFICA CHIAVE: Usiamo DIMENSIONE_CHUNK_OTTIMALE (1200 caratteri)
+                chunks_doc = dividi_in_chunk(
+                    testo_pulito, dimensione=DIMENSIONE_CHUNK_OTTIMALE
+                )
 
                 for c in chunks_doc:
                     testo_c = c if isinstance(c, str) else estrai_testo_documento(c)
@@ -124,7 +141,9 @@ def costruisci_vectorstore():
                         tutti_i_chunk.append(testo_c)
                         tutti_i_metadati.append({"source": file_path.name})
 
-            print(f"   └─ Estratti e preparati i chunk per: {file_path.name}")
+            print(
+                f"   └─ Estratti e preparati i chunk (size ~{DIMENSIONE_CHUNK_OTTIMALE}) per: {file_path.name}"
+            )
 
         except Exception as e:
             print(f"❌ Errore durante l'elaborazione del file {file_path.name}: {e}")
@@ -142,7 +161,7 @@ def costruisci_vectorstore():
     print("🧠 Calcolo degli embedding per i chunk...")
     vettori_embedding = embed(tutti_i_chunk)
 
-    # 3. Inizializzazione della collezione Chroma pulita
+    # 3. Inizializzazione della collezione Chroma pulita (crea_collection svuota e ricrea il DB)
     print("💾 Creazione collezione e salvataggio nel Vector Store...")
     collection = vectorstore.crea_collection(NOME_COLLEZIONE)
 

@@ -34,7 +34,7 @@ from agents import (
     SQLiteSession,
     MaxTurnsExceeded,
 )
-from aikit import rag, tools  # Modulo RAG (recupera) e utility per i tool
+from aikit import rag, tools, vectorstore  # Modulo RAG (recupera) e utility per i tool
 
 # ==============================================================================
 # CONFIGURAZIONE COSTANTI E DATABASE
@@ -54,42 +54,32 @@ NOME_SESSIONE = "valdoria_user_session"  # ID unico per identificare la sessione
 # PROCEDIMENTO 2: DEFINIZIONE TOOL RAG 'cerca_documenti' (OBIETTIVO 3)
 # ==============================================================================
 @function_tool
-def cerca_documenti(query: str, k: int = 3) -> str:
-    """Cerca all'interno dei documenti e regolamenti non strutturati della Biblioteca di Valdoria."""
-    print(f"\n🔍 [TOOL RAG] Cercando nei documenti: '{query}'")
+def cerca_documenti(query: str) -> str:
+    """Cerca informazioni nei documenti della biblioteca (regolamenti, orari, sale studio, carte servizi)."""
+    print(f"\n🔍 [TOOL RAG] Query di ricerca: '{query}'")
+
     try:
-        # Passiamo NOME_COLLEZIONE come primo parametro posizionale (senza collezione=...)
-        risultati = rag.recupera(query, k)
+        # Apriamo la collezione ESATTA "valdoria_docs" dove documenti.py ha salvato i dati!
+        collection = vectorstore.apri_collection(NOME_COLLEZIONE)
+        risultati = vectorstore.search(collection, query, k=5)
+
+        print(f"DEBUG - Risultati trovati in '{NOME_COLLEZIONE}': {len(risultati)}")
 
         if not risultati:
-            return "Nessun documento o regolamento pertinente trovato nei file di Valdoria."
+            return "Nessun documento trovato nei regolamenti."
 
-        testi_formattati = []
-        for idx, res in enumerate(risultati, start=1):
-            if isinstance(res, dict):
-                metadata = res.get("metadata", {})
-                fonte = (
-                    metadata.get("source")
-                    or res.get("source")
-                    or res.get("id")
-                    or "Documento Sconosciuto"
-                )
-                testo = res.get("testo") or res.get("text") or res.get("document") or ""
-                score = res.get("score", 0.0)
-            else:
-                fonte = getattr(res, "source", "Documento Sconosciuto")
-                testo = getattr(res, "text", str(res))
-                score = 0.0
+        testi = []
+        for r in risultati:
+            testo = r.get("testo", "")
+            fonte = r.get("source", r.get("id", "documento"))
+            score = r.get("score", 0.0)
+            testi.append(f"[Fonte: {fonte} | Score: {score:.2f}]\n{testo}")
 
-            testi_formattati.append(
-                f"--- CHUNK {idx} (Fonte: {fonte} | Rilevanza: {score:.2f}) ---\n{testo.strip()}"
-            )
-
-        return "\n\n".join(testi_formattati)
+        return "\n\n---\n\n".join(testi)
 
     except Exception as e:
-        print(f"❌ [TOOL RAG ERROR]: {e}")
-        return f"Errore durante il recupero dei documenti: {e}"
+        print(f"❌ [RAG ERROR]: {e}")
+        return f"Errore durante la ricerca nei documenti: {e}"
 
 
 # ==============================================================================
@@ -119,17 +109,23 @@ SYSTEM_PROMPT = """Sei l'assistente virtuale ufficiale della Biblioteca Comunale
 
 Disponi di due strumenti (tool):
 1. `esegui_query_db`: DEVI USARE QUESTO TOOL per qualsiasi domanda che richieda di contare, cercare o consultare i dati su LIBRI, CATALOGO, UTENTI e PRESTITI. Non inventare mai numeri e non dire che il database non è accessibile senza aver prima chiamato questo tool.
-2. `cerca_documenti`: Usa questo tool per domande su regolamenti, orari, sale studio e carte dei servizi.
+2. `cerca_documenti`: Usa questo tool per domande su regolamenti, orari, sale studio, costi, iscrizioni e carta dei servizi.
 
 ### SCHEMA DEL DATABASE RELAZIONALE (`valdoria.db`):
 - `utenti` (id, nome, cognome, tessera, data_iscrizione, sede_iscrizione)
-- `catalogo` (id, titolo, autore, genere, anno, sede, tipo, copie)  --> tipo può essere 'libro', 'dvd', 'rivista'
+- `catalogo` (id, titolo, autore, genere, anno, sede, tipo, copie) --> tipo può essere 'libro', 'dvd', 'rivista'
 - `prestiti` (id, utente_id, catalogo_id, data_prestito, data_scadenza, data_restituzione, rinnovi)
 
-### DIRETTIVE:
-- Per contare i libri nel catalogo, esegui una query SQL del tipo: `SELECT COUNT(*), SUM(copie) FROM catalogo WHERE tipo='libro';`
-- Se usufruisci dei documenti di testo, cita sempre la fonte (es. 'secondo il regolamento-prestiti.pdf...').
-- Rifiuta gentilmente solo le domande del tutto estranee alla Biblioteca di Valdoria.
+### DIRETTIVE PER LE RICERCHE (RAG):
+- Quando usi `cerca_documenti`, includi nella query sia il tema principale sia le caratteristiche rilevanti dell'utente (es. "limite prestiti tessera studenti universitari", "sanzioni ritardo 30 giorni", "restituzione contenitore h24").
+
+### DIRETTIVE PER LE RISPOSTE:
+1. **Analisi del Profilo Utente:** Quando un utente specifica età o condizione (es. studente universitario, minore di 14 anni, over 75), verifica SEMPRE nei regolamenti se ha diritto a tessere speciali (es. Tessera Studenti o Tessera Famiglia) o a condizioni agevolate prima di indicare i limiti.
+2. **Consultazione delle Tabelle:** Presta massima attenzione alle tabelle nei regolamenti:
+   - Associa correttamente il limite al tipo di tessera corrispondente (es. Tessera Ordinaria: 5 prestiti; Tessera Studenti: 8 prestiti; Tessera Famiglia: 10 prestiti complessivi).
+   - Mantieni distinta la frequenza/limite del materiale fisico rispetto alla biblioteca digitale (ebook/audiolibri).
+3. **Citazione Fonti:** Cita SEMPRE la fonte esatta del file (es. 'secondo il regolamento-prestiti.pdf...').
+4. **Trasparenza:** Rispondi in modo chiaro, cortese e completo citando tutti i dettagli pertinenti trovati nei documenti. Rifiuta gentilmente soltanto le domande del tutto estranee alla Biblioteca di Valdoria.
 """
 
 
